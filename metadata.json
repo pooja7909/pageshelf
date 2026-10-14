@@ -1,0 +1,6 @@
+{
+  "name": "Page Shelf - Educational Web App & File Organizer",
+  "description": "Organize, curate, and share GitHub web pages and course resources with nested syllabus categories and student/teacher access control.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

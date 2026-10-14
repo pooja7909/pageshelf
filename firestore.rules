@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll(['name']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             (!('parent' in data) || (data.parent is string && data.parent.size() <= 100)) &&
+             (!('order' in data) || data.order is number) &&
+             (!('visibleToStudents' in data) || data.visibleToStudents is bool) &&
+             (!('createdAt' in data) || data.createdAt is number) &&
+             (!('updatedAt' in data) || data.updatedAt is number);
+    }
+
+    function isValidLink(data) {
+      return data.keys().hasAll(['title', 'type']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.type is string && (data.type == 'link' || data.type == 'file') &&
+             (!('kind' in data) || (data.kind is string && data.kind.size() <= 30)) &&
+             (!('url' in data) || (data.url is string && data.url.size() <= 2048)) &&
+             (!('note' in data) || (data.note is string && data.note.size() <= 1000)) &&
+             (!('cat' in data) || (data.cat is string && data.cat.size() <= 100)) &&
+             (!('fileName' in data) || (data.fileName is string && data.fileName.size() <= 255)) &&
+             (!('fileData' in data) || (data.fileData is string && data.fileData.size() <= 1048576)) &&
+             (!('ext' in data) || (data.ext is string && data.ext.size() <= 30)) &&
+             (!('size' in data) || data.size is number) &&
+             (!('visibleToStudents' in data) || data.visibleToStudents is bool) &&
+             (!('assessmentType' in data) || (data.assessmentType is string && data.assessmentType.size() <= 50)) &&
+             (!('dueDate' in data) || (data.dueDate is string && data.dueDate.size() <= 50)) &&
+             (!('maxMarks' in data) || data.maxMarks is number) &&
+             (!('videoDuration' in data) || (data.videoDuration is string && data.videoDuration.size() <= 50)) &&
+             (!('embedUrl' in data) || (data.embedUrl is string && data.embedUrl.size() <= 2048)) &&
+             (!('timelineDate' in data) || (data.timelineDate is string && data.timelineDate.size() <= 50)) &&
+             (!('timelinePhase' in data) || (data.timelinePhase is string && data.timelinePhase.size() <= 50)) &&
+             (!('createdAt' in data) || data.createdAt is number) &&
+             (!('updatedAt' in data) || data.updatedAt is number);
+    }
+
+    function isValidConfig(data) {
+      return (!('shelfTitle' in data) || (data.shelfTitle is string && data.shelfTitle.size() <= 100)) &&
+             (!('shelfDescription' in data) || (data.shelfDescription is string && data.shelfDescription.size() <= 500)) &&
+             (!('teacherPasscodeHash' in data) || (data.teacherPasscodeHash is string && data.teacherPasscodeHash.size() <= 128)) &&
+             (!('seeded' in data) || data.seeded is bool) &&
+             (!('updatedAt' in data) || data.updatedAt is number) &&
+             (!('showExtraResourcesToStudents' in data) || data.showExtraResourcesToStudents is bool) &&
+             (!('showAssessmentsToStudents' in data) || data.showAssessmentsToStudents is bool) &&
+             (!('showTimelineToStudents' in data) || data.showTimelineToStudents is bool) &&
+             (!('timelineAppUrl' in data) || (data.timelineAppUrl is string && data.timelineAppUrl.size() <= 2048)) &&
+             (!('timelineAppTitle' in data) || (data.timelineAppTitle is string && data.timelineAppTitle.size() <= 100)) &&
+             (!('timelineEmbedMode' in data) || data.timelineEmbedMode is bool);
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow create, update: if isValidId(categoryId) && isValidCategory(request.resource.data);
+      allow delete: if isValidId(categoryId);
+    }
+
+    match /links/{linkId} {
+      allow read: if true;
+      allow create, update: if isValidId(linkId) && isValidLink(request.resource.data);
+      allow delete: if isValidId(linkId);
+    }
+
+    match /config/{configId} {
+      allow read: if true;
+      allow create, update: if isValidId(configId) && isValidConfig(request.resource.data);
+      allow delete: if false;
+    }
+  }
+}

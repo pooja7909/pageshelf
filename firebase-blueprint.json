@@ -1,0 +1,217 @@
+{
+  "entities": {
+    "Category": {
+      "title": "Category",
+      "description": "A curriculum category or custom shelf tab and dropdown section",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Display name of category"
+        },
+        "parent": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Parent category ID or empty string"
+        },
+        "order": {
+          "type": "number",
+          "description": "Sorting sequence order"
+        },
+        "visibleToStudents": {
+          "type": "boolean",
+          "description": "Whether students are permitted to see this category"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Creation timestamp in milliseconds"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Last modified timestamp in milliseconds"
+        }
+      },
+      "required": ["name"]
+    },
+    "Link": {
+      "title": "Link",
+      "description": "A web app, GitHub page, or file item on the shelf",
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "Web URL or resource link"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Display title of the link or file"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Teacher guidance, description, or notes"
+        },
+        "cat": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Category ID or empty for unsorted"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["link", "file"],
+          "description": "Resource type: link or file"
+        },
+        "kind": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "Resource kind: link, video, assessment, timeline, or file"
+        },
+        "assessmentType": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Type of assessment: quiz, test, exam, assignment, past_paper, or project"
+        },
+        "dueDate": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Assessment deadline or target completion date"
+        },
+        "maxMarks": {
+          "type": "number",
+          "description": "Maximum marks or total points for the assessment"
+        },
+        "videoDuration": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Video duration label (e.g. 15 mins)"
+        },
+        "embedUrl": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "Direct embeddable player URL for video or interactive app"
+        },
+        "timelineDate": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Target date or term week for timeline event"
+        },
+        "timelinePhase": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Curriculum phase or topic milestone label"
+        },
+        "fileName": {
+          "type": "string",
+          "maxLength": 255,
+          "description": "Original file name"
+        },
+        "fileData": {
+          "type": "string",
+          "maxLength": 1048576,
+          "description": "Inline text or data URI content"
+        },
+        "ext": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "File extension"
+        },
+        "size": {
+          "type": "number",
+          "description": "File size in bytes"
+        },
+        "visibleToStudents": {
+          "type": "boolean",
+          "description": "Whether students can see this resource"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Creation timestamp in milliseconds"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Last update timestamp in milliseconds"
+        }
+      },
+      "required": ["title", "type"]
+    },
+    "Config": {
+      "title": "Config",
+      "description": "Global configuration and teacher passcode state",
+      "type": "object",
+      "properties": {
+        "shelfTitle": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Custom shelf headline"
+        },
+        "shelfDescription": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Custom shelf description text"
+        },
+        "teacherPasscodeHash": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Teacher passcode verification hash"
+        },
+        "seeded": {
+          "type": "boolean",
+          "description": "Flag indicating default curriculum categories have been seeded"
+        },
+        "showExtraResourcesToStudents": {
+          "type": "boolean",
+          "description": "Whether the Extra Resources button and section is visible to students"
+        },
+        "showAssessmentsToStudents": {
+          "type": "boolean",
+          "description": "Whether the Assessments button and section is visible to students"
+        },
+        "showTimelineToStudents": {
+          "type": "boolean",
+          "description": "Whether the Timeline App button and section is visible to students"
+        },
+        "timelineAppUrl": {
+          "type": "string",
+          "maxLength": 2048,
+          "description": "Teacher timeline app URL (external app or embed)"
+        },
+        "timelineAppTitle": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Display title for the Timeline App"
+        },
+        "timelineEmbedMode": {
+          "type": "boolean",
+          "description": "Whether to embed timeline in an iframe or open externally"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Last update timestamp"
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/categories/{categoryId}": {
+      "schema": {
+        "$ref": "#/entities/Category"
+      },
+      "description": "Collection of category tabs and nested dropdown nodes"
+    },
+    "/links/{linkId}": {
+      "schema": {
+        "$ref": "#/entities/Link"
+      },
+      "description": "Collection of web apps, GitHub pages, and uploaded files"
+    },
+    "/config/{configId}": {
+      "schema": {
+        "$ref": "#/entities/Config"
+      },
+      "description": "Application settings and access control config"
+    }
+  }
+}
