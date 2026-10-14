@@ -171,8 +171,12 @@ export default function App() {
   // Teacher mode & authentication state
   const [isTeacher, setIsTeacher] = useState<boolean>(() => {
     // Check if previously unlocked in this browser session
-    const saved = sessionStorage.getItem('ps.teacherMode');
-    return saved === 'true';
+    try {
+      const saved = sessionStorage.getItem('ps.teacherMode');
+      return saved === 'true';
+    } catch {
+      return false;
+    }
   });
   const [studentPreview, setStudentPreview] = useState(false);
   const [passcodeModalOpen, setPasscodeModalOpen] = useState(false);
@@ -213,12 +217,16 @@ export default function App() {
     if (viewParam === 'student') {
       // Direct student link forces student mode
       setIsTeacher(false);
-      sessionStorage.removeItem('ps.teacherMode');
+      try {
+        sessionStorage.removeItem('ps.teacherMode');
+      } catch {}
     } else if (keyParam) {
       // URL teacher key
       if (keyParam === config.teacherPasscodeHash || keyParam === DEFAULT_PASSCODE) {
         setIsTeacher(true);
-        sessionStorage.setItem('ps.teacherMode', 'true');
+        try {
+          sessionStorage.setItem('ps.teacherMode', 'true');
+        } catch {}
         showToast('Teacher mode unlocked via URL key');
       }
     }
@@ -226,8 +234,18 @@ export default function App() {
 
   // Firestore real-time synchronization
   useEffect(() => {
-    if (sessionStorage.getItem('ps.quotaExceeded') === 'true') {
+    let isQuotaActive = false;
+    try {
+      isQuotaActive = sessionStorage.getItem('ps.quotaExceeded') === 'true';
+    } catch {}
+
+    if (isQuotaActive) {
       setQuotaExceeded(true);
+      setLoading(false);
+      return;
+    }
+
+    if (!db) {
       setLoading(false);
       return;
     }
@@ -236,7 +254,13 @@ export default function App() {
     let unsubCats: (() => void) | null = null;
     let unsubLinks: (() => void) | null = null;
 
+    // Safety fallback: ensure loading never hangs if remote connection is slow or blocked
+    const fallbackTimer = setTimeout(() => {
+      setLoading(false);
+    }, 2000);
+
     const detachAll = () => {
+      clearTimeout(fallbackTimer);
       unsubConfig?.();
       unsubCats?.();
       unsubLinks?.();
@@ -247,98 +271,106 @@ export default function App() {
 
     const handleQuota = () => {
       setQuotaExceeded(true);
-      sessionStorage.setItem('ps.quotaExceeded', 'true');
+      try {
+        sessionStorage.setItem('ps.quotaExceeded', 'true');
+      } catch {}
       setLoading(false);
       detachAll();
     };
 
-    // 1. Listen to config
-    unsubConfig = onSnapshot(
-      doc(db, 'config', 'settings'),
-      (snapshot) => {
-        if (snapshot.exists()) {
-          const cfg = snapshot.data() as ShelfConfig;
-          if (!cfg.timelineAppUrl || cfg.timelineAppUrl.includes('poojaaro.github.io/timeline')) {
-            cfg.timelineAppUrl = 'https://cs-timeline-five.vercel.app/';
-            cfg.timelineAppTitle = 'Timeline App';
-            updateDoc(doc(db, 'config', 'settings'), {
-              timelineAppUrl: 'https://cs-timeline-five.vercel.app/',
-              timelineAppTitle: 'Timeline App',
-              updatedAt: Date.now()
-            }).catch(() => {});
+    // 1. Listen to config safely
+    try {
+      unsubConfig = onSnapshot(
+        doc(db, 'config', 'settings'),
+        (snapshot) => {
+          if (snapshot.exists()) {
+            const cfg = snapshot.data() as ShelfConfig;
+            if (!cfg.timelineAppUrl || cfg.timelineAppUrl.includes('poojaaro.github.io/timeline')) {
+              cfg.timelineAppUrl = 'https://cs-timeline-five.vercel.app/';
+              cfg.timelineAppTitle = 'Timeline App';
+              updateDoc(doc(db, 'config', 'settings'), {
+                timelineAppUrl: 'https://cs-timeline-five.vercel.app/',
+                timelineAppTitle: 'Timeline App',
+                updatedAt: Date.now()
+              }).catch(() => {});
+            }
+            setConfig(cfg);
+            try {
+              localStorage.setItem(LOCAL_STORAGE_CONFIG, JSON.stringify(cfg));
+            } catch {}
           }
-          setConfig(cfg);
-          try {
-            localStorage.setItem(LOCAL_STORAGE_CONFIG, JSON.stringify(cfg));
-          } catch {}
+        },
+        (error) => {
+          if (isQuotaError(error)) {
+            handleQuota();
+          } else {
+            console.warn('Config snapshot notice:', error);
+          }
         }
-      },
-      (error) => {
-        if (isQuotaError(error)) {
-          handleQuota();
-        } else {
-          try {
-            handleFirestoreError(error, OperationType.GET, 'config/settings');
-          } catch {}
-        }
-      }
-    );
+      );
+    } catch (err) {
+      console.warn('Failed to attach config listener:', err);
+    }
 
-    // 2. Listen to categories
-    unsubCats = onSnapshot(
-      collection(db, 'categories'),
-      (snapshot) => {
-        const catList: Category[] = snapshot.docs.map((d) => ({
-          id: d.id,
-          ...d.data()
-        } as Category));
+    // 2. Listen to categories safely
+    try {
+      unsubCats = onSnapshot(
+        collection(db, 'categories'),
+        (snapshot) => {
+          const catList: Category[] = snapshot.docs.map((d) => ({
+            id: d.id,
+            ...d.data()
+          } as Category));
 
-        if (catList.length === 0 && snapshot.metadata.fromCache === false) {
-          seedInitialCurriculum();
-        } else if (catList.length > 0) {
-          setCategories(catList);
-          try {
-            localStorage.setItem(LOCAL_STORAGE_CATS, JSON.stringify(catList));
-          } catch {}
-          setLoading(false);
+          if (catList.length === 0 && snapshot.metadata.fromCache === false) {
+            seedInitialCurriculum();
+          } else if (catList.length > 0) {
+            setCategories(catList);
+            try {
+              localStorage.setItem(LOCAL_STORAGE_CATS, JSON.stringify(catList));
+            } catch {}
+            setLoading(false);
+          }
+        },
+        (error) => {
+          if (isQuotaError(error)) {
+            handleQuota();
+          } else {
+            console.warn('Categories snapshot notice:', error);
+          }
         }
-      },
-      (error) => {
-        if (isQuotaError(error)) {
-          handleQuota();
-        } else {
-          try {
-            handleFirestoreError(error, OperationType.LIST, 'categories');
-          } catch {}
-        }
-      }
-    );
+      );
+    } catch (err) {
+      console.warn('Failed to attach categories listener:', err);
+    }
 
-    // 3. Listen to links
-    unsubLinks = onSnapshot(
-      collection(db, 'links'),
-      (snapshot) => {
-        const linkList: ShelfItem[] = snapshot.docs.map((d) => ({
-          id: d.id,
-          ...d.data()
-        } as ShelfItem));
-        if (linkList.length > 0 || snapshot.docs.length === 0) {
-          setLinks(linkList);
-          try {
-            localStorage.setItem(LOCAL_STORAGE_LINKS, JSON.stringify(linkList));
-          } catch {}
+    // 3. Listen to links safely
+    try {
+      unsubLinks = onSnapshot(
+        collection(db, 'links'),
+        (snapshot) => {
+          const linkList: ShelfItem[] = snapshot.docs.map((d) => ({
+            id: d.id,
+            ...d.data()
+          } as ShelfItem));
+          if (linkList.length > 0 || snapshot.docs.length === 0) {
+            setLinks(linkList);
+            try {
+              localStorage.setItem(LOCAL_STORAGE_LINKS, JSON.stringify(linkList));
+            } catch {}
+          }
+        },
+        (error) => {
+          if (isQuotaError(error)) {
+            handleQuota();
+          } else {
+            console.warn('Links snapshot notice:', error);
+          }
         }
-      },
-      (error) => {
-        if (isQuotaError(error)) {
-          handleQuota();
-        } else {
-          try {
-            handleFirestoreError(error, OperationType.LIST, 'links');
-          } catch {}
-        }
-      }
-    );
+      );
+    } catch (err) {
+      console.warn('Failed to attach links listener:', err);
+    }
 
     return () => {
       detachAll();

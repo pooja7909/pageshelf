@@ -4,9 +4,54 @@ import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 import { OperationType } from './types';
 
-const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
+let appInstance: any = null;
+let dbInstance: any = null;
+let authInstance: any = null;
+
+const rawConfig: any = firebaseConfig || {};
+
+const configToUse = {
+  projectId: (import.meta.env?.VITE_FIREBASE_PROJECT_ID as string) || rawConfig.projectId || '',
+  appId: (import.meta.env?.VITE_FIREBASE_APP_ID as string) || rawConfig.appId || '',
+  apiKey: (import.meta.env?.VITE_FIREBASE_API_KEY as string) || rawConfig.apiKey || '',
+  authDomain: (import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN as string) || rawConfig.authDomain || '',
+  firestoreDatabaseId: (import.meta.env?.VITE_FIREBASE_DATABASE_ID as string) || rawConfig.firestoreDatabaseId || '',
+  storageBucket: (import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET as string) || rawConfig.storageBucket || '',
+  messagingSenderId: (import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID as string) || rawConfig.messagingSenderId || '',
+};
+
+if (configToUse.apiKey && configToUse.projectId) {
+  try {
+    appInstance = initializeApp(configToUse);
+    try {
+      if (configToUse.firestoreDatabaseId && configToUse.firestoreDatabaseId !== '(default)') {
+        dbInstance = getFirestore(appInstance, configToUse.firestoreDatabaseId);
+      } else {
+        dbInstance = getFirestore(appInstance);
+      }
+    } catch (namedDbErr) {
+      console.warn('Could not connect to named Firestore database ID, attempting default instance:', namedDbErr);
+      try {
+        dbInstance = getFirestore(appInstance);
+      } catch (defaultDbErr) {
+        console.warn('Firestore initialization failed; running in offline/local-storage mode:', defaultDbErr);
+      }
+    }
+    try {
+      authInstance = getAuth(appInstance);
+    } catch (authErr) {
+      console.warn('Firebase Auth initialization warning:', authErr);
+    }
+  } catch (initErr) {
+    console.warn('Firebase app initialization failed; running in offline/local-storage mode:', initErr);
+  }
+} else {
+  console.info('Firebase config credentials not provided; running in local storage mode.');
+}
+
+export const app = appInstance;
+export const db = dbInstance;
+export const auth = authInstance;
 
 export function isQuotaError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
@@ -25,12 +70,12 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   const errInfo = {
     error: errMessage,
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
+      providerInfo: auth?.currentUser?.providerData?.map((provider: any) => ({
         providerId: provider.providerId,
         email: provider.email,
       })) || []
@@ -51,6 +96,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 export async function testConnection(): Promise<boolean> {
+  if (!db) return false;
   try {
     await getDocFromServer(doc(db, 'config', 'settings'));
     return true;
