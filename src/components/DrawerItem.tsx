@@ -11,10 +11,13 @@ import {
   Upload,
   Maximize2,
   Check,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Download,
+  Monitor
 } from 'lucide-react';
 import { Category, ShelfItem } from '../types';
 import { analyseUrl, formatFileSize } from '../utils/linkAnalyzer';
+import { openFileInDesktopTab, downloadShelfFile } from '../utils/fileViewer';
 
 interface DrawerItemProps {
   category: Category;
@@ -320,7 +323,7 @@ export const DrawerItem: React.FC<DrawerItemProps> = ({
               </div>
 
               <div className="lacts">
-                {/* External open */}
+                {/* External open for links */}
                 {item.type === 'link' && item.url && (
                   <a
                     href={item.url}
@@ -334,16 +337,52 @@ export const DrawerItem: React.FC<DrawerItemProps> = ({
                   </a>
                 )}
 
-                {/* Preview in shelf */}
+                {/* View file directly on desktop in a new browser tab */}
+                {item.type === 'file' && (
+                  <button
+                    type="button"
+                    className="icon text-blue-600 dark:text-blue-400"
+                    onClick={() => {
+                      const ok = openFileInDesktopTab(item);
+                      if (ok) {
+                        onToast(`Opened ${item.fileName || item.title} in desktop tab`);
+                      } else {
+                        onPreview(item);
+                      }
+                    }}
+                    title="View file on desktop (new tab)"
+                    aria-label={`View ${item.title} on desktop`}
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                )}
+
+                {/* Preview / Read in shelf */}
                 <button
                   type="button"
                   className="icon"
                   onClick={() => onPreview(item)}
-                  title="Preview in shelf"
+                  title={item.type === 'file' ? 'Open desktop file reader modal' : 'Preview in shelf'}
                   aria-label={`Preview ${item.title}`}
                 >
                   <Maximize2 className="w-4 h-4" />
                 </button>
+
+                {/* Direct download for files */}
+                {item.type === 'file' && (
+                  <button
+                    type="button"
+                    className="icon"
+                    onClick={() => {
+                      const ok = downloadShelfFile(item);
+                      if (ok) onToast(`Downloading ${item.fileName || item.title}`);
+                    }}
+                    title="Download file to computer"
+                    aria-label={`Download ${item.title}`}
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                )}
 
                 {/* Copy link */}
                 <button

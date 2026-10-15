@@ -36,6 +36,7 @@ import { ExtraResourcesModal } from './components/ExtraResourcesModal';
 import { AssessmentsModal } from './components/AssessmentsModal';
 import { TimelineModal } from './components/TimelineModal';
 import { VisibilityManagerModal } from './components/VisibilityManagerModal';
+import { ShareModal } from './components/ShareModal';
 import { analyseUrl } from './utils/linkAnalyzer';
 
 const DEFAULT_PASSCODE = 'teacher123';
@@ -133,6 +134,113 @@ const loadInitialLinks = (): ShelfItem[] => {
       note: 'Interactive Computer Science Timeline & Syllabus Roadmap.',
       visibleToStudents: true,
       createdAt: Date.now()
+    },
+    {
+      id: 'demo-code-sort',
+      type: 'file',
+      kind: 'file',
+      title: 'Searching & Sorting Algorithms Worksheet',
+      fileName: 'algorithms_search_sort.py',
+      ext: 'py',
+      size: 1420,
+      fileData: `# Computer Science IB & IGCSE: Searching and Sorting Algorithms
+# Interactive Reference Worksheet
+
+def linear_search(arr, target):
+    """Linear Search: Time Complexity O(n)"""
+    for index, value in enumerate(arr):
+        if value == target:
+            return index
+    return -1
+
+def binary_search(arr, target):
+    """Binary Search on sorted array: Time Complexity O(log n)"""
+    low = 0
+    high = len(arr) - 1
+    while low <= high:
+        mid = (low + high) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            low = mid + 1
+        else:
+            high = mid - 1
+    return -1
+
+def bubble_sort(arr):
+    """Bubble Sort with early termination: Time Complexity O(n^2)"""
+    n = len(arr)
+    for i in range(n):
+        swapped = False
+        for j in range(0, n - i - 1):
+            if arr[j] > arr[j + 1]:
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+                swapped = True
+        if not swapped:
+            break
+    return arr
+
+# Test dataset
+if __name__ == '__main__':
+    data = [64, 34, 25, 12, 22, 11, 90]
+    print("Original array:", data)
+    sorted_data = bubble_sort(data.copy())
+    print("Sorted array:", sorted_data)
+    idx = binary_search(sorted_data, 25)
+    print("Index of 25 in sorted array:", idx)
+`,
+      cat: 'ib-a2-1-1',
+      note: 'Python code sample: Binary search, linear search, and bubble sort implementations with docstrings. Click to view on desktop!',
+      visibleToStudents: true,
+      createdAt: Date.now()
+    },
+    {
+      id: 'demo-notes-markdown',
+      type: 'file',
+      kind: 'file',
+      title: 'System Fundamentals & Ethics Study Sheet',
+      fileName: 'systems_fundamentals_study_notes.md',
+      ext: 'md',
+      size: 2150,
+      fileData: `# Computer Science: Systems in Organizations
+
+## 1. System Planning & Implementation
+- **Direct Changeover**: Immediate replacement of old system with new.
+  - *Advantage*: Rapid, low cost.
+  - *Risk*: Complete dependency; no fallback if failure occurs.
+- **Phased Implementation**: Modules installed sequentially.
+  - *Advantage*: Controlled rollout, easier user training.
+- **Parallel Running**: Both systems run concurrently.
+  - *Advantage*: High safety, output comparison.
+  - *Disadvantage*: High personnel cost and workload.
+
+## 2. Computational Thinking Principles
+1. **Decomposition**: Breaking complex problems into manageable sub-problems.
+2. **Pattern Recognition**: Identifying similarities and recurring trends.
+3. **Abstraction**: Filtering out unnecessary details to focus on core logic.
+4. **Algorithm Design**: Developing step-by-step instructions to solve the problem.
+
+---
+*Prepared for Student Desktop Study Reference*
+`,
+      cat: 'ib-a1-1-1',
+      note: 'Markdown revision notes covering changeover strategies and core computational thinking pillars.',
+      visibleToStudents: true,
+      createdAt: Date.now()
+    },
+    {
+      id: 'demo-pdf-syllabus',
+      type: 'file',
+      kind: 'file',
+      title: 'Computer Science Course Companion & Syllabus PDF',
+      fileName: 'cs_syllabus_quick_reference.pdf',
+      ext: 'pdf',
+      size: 3240,
+      fileData: 'data:application/pdf;base64,JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCAyMTggPj4Kc3RyZWFtCkJUCi9GMTsgMjIgVGYKNTAgNzIwIFRkCihDb21wdXRlciBTY2llbmNlIENvdXJzZSBDb21wYW5pb24gJiBTeWxsYWJ1cykgVGoKL0YxIDEyIFRmCjAgLTMwIFRkCihTdGFuZGFyZCBJQiAmIElHQ1NFIENvbXB1dGVyIFNjaWVuY2UgUXVpY2sgUmVmZXJlbmNlKSBUagowIC0yNSBUZAooMS4gQ1BVIEFyY2hpdGVjdHVyZSAmIFZvbiBOZXVtYW5uIE1vZGVsKSBUagowIC0yMCBUZAooMi4gRGF0YSBSZXByZXNlbnRhdGlvbiAmIEJpbmFyeSBMb2dpYykgVGoKMCAtMjAgVGQKKDMuIENvbXB1dGF0aW9uYWwgVGhpbmtpbmcgJiBBbGdvcml0aG0gRGVzaWduKSBUagowIC0zMCBUZAooRGVza3RvcCBGaWxlIFZpZXdlcjogU3R1ZGVudHMgY2FuIHZpZXcgdGhpcyBkb2N1bWVudCBkaXJlY3RseSB3aXRob3V0IGRvd25sb2FkaW5nISkgVGoKRVQKZW5kc3RyZWFtCmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9Gb250IC9TdWJ0eXBlIC9UeXBlMSAvQmFzZUZvbnQgL0hlbHZldGljYSA+PgplbmRvYmoKeHJlZgowIDYKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNTggMDAwMDAgbiAKMDAwMDAwMDExNSAwMDAwMCBuIAowMDAwMDAwMjQ0IDAwMDAwIG4gCjAwMDAwMDA1MTQgMDAwMDAgbiAKdHJhaWxlcgo8PCAvU2l6ZSA2IC9Sb290IDEgMCBSID4+CnN0YXJ0eHJlZgo1ODMKJSVFT0Y=',
+      cat: 'ib-a1-1',
+      note: 'Official Course Guide & Quick Reference PDF. View directly in browser desktop reader or open in a new desktop tab.',
+      visibleToStudents: true,
+      createdAt: Date.now()
     }
   ];
 };
@@ -168,8 +276,50 @@ export default function App() {
   const [quotaExceeded, setQuotaExceeded] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
+  // Standalone route detection helpers
+  const isStudentUrl = (): boolean => {
+    try {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      const params = new URLSearchParams(window.location.search);
+      return (
+        path.includes('/student') ||
+        path.includes('/learn') ||
+        hash.includes('student') ||
+        params.has('student') ||
+        params.get('view') === 'student'
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const isTeacherUrl = (): boolean => {
+    try {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+      const params = new URLSearchParams(window.location.search);
+      return (
+        path.includes('/teacher') ||
+        path.includes('/admin') ||
+        hash.includes('teacher') ||
+        params.has('teacher') ||
+        params.get('view') === 'teacher'
+      );
+    } catch {
+      return false;
+    }
+  };
+
   // Teacher mode & authentication state
   const [isTeacher, setIsTeacher] = useState<boolean>(() => {
+    // If student URL (e.g. /student or ?student), ALWAYS lock out teacher mode
+    if (isStudentUrl()) {
+      try {
+        sessionStorage.removeItem('ps.teacherMode');
+      } catch {}
+      return false;
+    }
     // Check if previously unlocked in this browser session
     try {
       const saved = sessionStorage.getItem('ps.teacherMode');
@@ -181,6 +331,7 @@ export default function App() {
   const [studentPreview, setStudentPreview] = useState(false);
   const [passcodeModalOpen, setPasscodeModalOpen] = useState(false);
   const [isChangingPasscode, setIsChangingPasscode] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
 
   // Tab & search filtering
   const [activeTab, setActiveTab] = useState<string>('all');
@@ -206,22 +357,31 @@ export default function App() {
     }, 2500);
   }, []);
 
-  // Initialize and check URL parameters on boot
+  // Initialize and check URL parameters & routes on boot
   useEffect(() => {
     testConnection();
 
-    const params = new URLSearchParams(window.location.search);
-    const viewParam = params.get('view');
-    const keyParam = params.get('key');
-
-    if (viewParam === 'student') {
-      // Direct student link forces student mode
+    if (isStudentUrl()) {
+      // Standalone student link: force student mode and purge any teacher session token
       setIsTeacher(false);
+      setStudentPreview(false);
       try {
         sessionStorage.removeItem('ps.teacherMode');
       } catch {}
-    } else if (keyParam) {
-      // URL teacher key
+    } else if (isTeacherUrl()) {
+      // Explicit teacher route: check if already unlocked, else prompt for passcode
+      const saved = sessionStorage.getItem('ps.teacherMode') === 'true';
+      if (!saved) {
+        setIsChangingPasscode(false);
+        setPasscodeModalOpen(true);
+      } else {
+        setIsTeacher(true);
+      }
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const keyParam = params.get('key');
+    if (keyParam) {
       if (keyParam === config.teacherPasscodeHash || keyParam === DEFAULT_PASSCODE) {
         setIsTeacher(true);
         try {
@@ -592,8 +752,13 @@ export default function App() {
   const handleLockTeacher = () => {
     setIsTeacher(false);
     setStudentPreview(false);
-    sessionStorage.removeItem('ps.teacherMode');
-    showToast('Controls locked. You are now in Student View.');
+    try {
+      sessionStorage.removeItem('ps.teacherMode');
+    } catch {}
+    if (window.location.pathname.toLowerCase().includes('/teacher')) {
+      window.history.pushState({}, '', '/');
+    }
+    showToast('Controls locked. Switched to Student View.');
   };
 
   const handleChangePasscode = async (newPasscode: string) => {
@@ -617,11 +782,12 @@ export default function App() {
   };
 
   const handleCopyStudentLink = () => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('view', 'student');
-    url.searchParams.delete('key');
-    navigator.clipboard.writeText(url.toString());
-    showToast('Student share link copied to clipboard!');
+    const studentStandaloneUrl = `${window.location.origin}/student`;
+    try {
+      navigator.clipboard.writeText(studentStandaloneUrl);
+    } catch {}
+    setShareModalOpen(true);
+    showToast('Standalone student link copied!');
   };
 
   const handleUpdateConfig = async (newCfg: Partial<ShelfConfig>) => {
@@ -1421,6 +1587,13 @@ export default function App() {
         onUpdateConfig={handleUpdateConfig}
         onToggleCategoryVisibility={handleToggleCategoryVisibility}
         onBulkUpdateItemsVisibility={handleBulkUpdateItemsVisibility}
+        onToast={showToast}
+      />
+
+      {/* Standalone Student URL & Share Modal */}
+      <ShareModal
+        isOpen={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
         onToast={showToast}
       />
 
