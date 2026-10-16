@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   X,
   Video,
@@ -12,13 +12,17 @@ import {
   Search,
   Sparkles,
   BookOpen,
-  Filter,
   Check,
   Copy,
-  Clock
+  Clock,
+  UploadCloud,
+  FileText,
+  Download,
+  Film
 } from 'lucide-react';
 import { Category, ShelfItem, ShelfConfig } from '../types';
-import { normalizeUrl, analyseUrl } from '../utils/linkAnalyzer';
+import { normalizeUrl, analyseUrl, formatFileSize } from '../utils/linkAnalyzer';
+import { openItemInSeparateWindow, downloadShelfFile, resolveItemBlobUrl } from '../utils/fileViewer';
 
 interface ExtraResourcesModalProps {
   isOpen: boolean;
@@ -56,31 +60,46 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
   const [selectedCat, setSelectedCat] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [addMode, setAddMode] = useState<'link' | 'file'>('file');
   const [playingVideo, setPlayingVideo] = useState<ShelfItem | null>(null);
+  const [playingVideoBlobUrl, setPlayingVideoBlobUrl] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Form state
+  // Link form state
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
-  const [cat, setCat] = useState('');
+  const [cat, setCat] = useState('__unsorted');
   const [note, setNote] = useState('');
   const [duration, setDuration] = useState('');
   const [visibleToStudents, setVisibleToStudents] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
+  // File upload state
+  const [dragOver, setDragOver] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<{ name: string; status: string }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   // Master visibility switch state
   const isMasterVisible = config.showExtraResourcesToStudents !== false;
 
-  // Filter items: identify items that are kind === 'video' or have video in URL/ext, or kind === 'link' tagged as extra
+  // Filter items: identify items that are kind === 'video' or have video in URL/ext, or tagged as extra
   const extraItems = useMemo(() => {
     return items.filter((item) => {
-      const isExplicitExtra = item.kind === 'video' || (item.kind as string) === 'guide' || (item.kind as string) === 'extra';
+      const isExplicitExtra =
+        item.kind === 'video' ||
+        (item.kind as string) === 'guide' ||
+        (item.kind as string) === 'extra';
       const analysis = item.url ? analyseUrl(item.url) : null;
-      const isVideoOrInteractive = analysis?.detectedKind === 'video' ||
+      const isVideoOrInteractive =
+        analysis?.detectedKind === 'video' ||
         ['mp4', 'webm', 'mov'].includes(item.ext || '') ||
-        (item.note && (item.note.toLowerCase().includes('video') || item.note.toLowerCase().includes('tutorial') || item.note.toLowerCase().includes('reference')));
-      
-      // If it's an assessment or pure timeline, exclude from extra resources
+        (item.note &&
+          (item.note.toLowerCase().includes('video') ||
+            item.note.toLowerCase().includes('tutorial') ||
+            item.note.toLowerCase().includes('reference') ||
+            item.note.toLowerCase().includes('extra')));
+
+      // Exclude assessment items and timeline items
       if (item.kind === 'assessment' || item.kind === 'timeline') return false;
 
       return isExplicitExtra || isVideoOrInteractive;
@@ -96,10 +115,19 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
     if (activeFilter === 'video') {
       list = list.filter((i) => {
         const a = i.url ? analyseUrl(i.url) : null;
-        return i.kind === 'video' || a?.detectedKind === 'video' || ['mp4', 'webm'].includes(i.ext || '');
+        return (
+          i.kind === 'video' ||
+          a?.detectedKind === 'video' ||
+          ['mp4', 'webm', 'mov'].includes(i.ext || '')
+        );
       });
     } else if (activeFilter === 'guide') {
-      list = list.filter((i) => i.ext === 'pdf' || (i.note && i.note.toLowerCase().includes('guide')) || i.kind === 'link');
+      list = list.filter(
+        (i) =>
+          i.ext === 'pdf' ||
+          (i.note && i.note.toLowerCase().includes('guide')) ||
+          i.kind === 'link'
+      );
     }
 
     if (selectedCat !== 'all') {
@@ -112,7 +140,8 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
         (i) =>
           i.title.toLowerCase().includes(q) ||
           (i.note && i.note.toLowerCase().includes(q)) ||
-          (i.url && i.url.toLowerCase().includes(q))
+          (i.url && i.url.toLowerCase().includes(q)) ||
+          (i.fileName && i.fileName.toLowerCase().includes(q))
       );
     }
     return list;
@@ -125,8 +154,8 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
     await onUpdateConfig({ showExtraResourcesToStudents: nextVal });
     onToast(
       nextVal
-        ? 'Extra Resources button is now visible to students.'
-        : 'Extra Resources button is now hidden from students (Teacher only).'
+        ? 'Extra Resources hub is now visible to students.'
+        : 'Extra Resources hub is now hidden from students (Teacher only).'
     );
   };
 
@@ -165,9 +194,111 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
     }
   };
 
+  // Process file uploads (supports files of any size)
+  const processFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const fileList = Array.from(files);
+
+    const newQueue = fileList.map((f) => ({ name: f.name, status: 'Uploading…' }));
+    setUploadQueue(newQueue);
+
+    let successCount = 0;
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
+      const ext = (file.name.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase() || '';
+      const isVideo = ['mp4', 'webm', 'mov', 'm4v', 'mkv'].includes(ext);
+
+      try {
+        let fileData = '';
+        const isText = ['txt', 'md', 'html', 'js', 'ts', 'py', 'java', 'json', 'csv', 'sql'].includes(ext);
+
+        // For small files, read text or data URL for direct cloud sync
+        if (file.size <= 600 * 1024) {
+          fileData = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            if (isText) {
+              reader.readAsText(file);
+            } else {
+              reader.readAsDataURL(file);
+            }
+          });
+        }
+
+        const cleanTitle =
+          title.trim() && fileList.length === 1
+            ? title.trim()
+            : file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || file.name;
+
+        const ok = await onAddResource({
+          type: 'file',
+          kind: isVideo ? 'video' : 'file',
+          title: cleanTitle,
+          fileName: file.name,
+          fileData,
+          fileBlob: file, // Full file blob in IndexedDB
+          isLargeFile: file.size > 600 * 1024,
+          ext,
+          size: file.size,
+          cat: cat === '__unsorted' ? '' : cat,
+          note: note.trim() || (isVideo ? 'Video lesson file' : 'Extra learning file'),
+          videoDuration: duration.trim() || undefined,
+          visibleToStudents
+        });
+
+        if (ok) {
+          successCount++;
+          setUploadQueue((prev) =>
+            prev.map((item, idx) => (idx === i ? { ...item, status: 'Added ✓' } : item))
+          );
+        } else {
+          setUploadQueue((prev) =>
+            prev.map((item, idx) => (idx === i ? { ...item, status: 'Failed' } : item))
+          );
+        }
+      } catch {
+        setUploadQueue((prev) =>
+          prev.map((item, idx) => (idx === i ? { ...item, status: 'Error' } : item))
+        );
+      }
+    }
+
+    if (successCount > 0) {
+      onToast(`Added ${successCount} extra file${successCount > 1 ? 's' : ''}.`);
+      setTitle('');
+      setNote('');
+      setDuration('');
+      setTimeout(() => {
+        setUploadQueue([]);
+        setShowAddForm(false);
+      }, 1200);
+    }
+  };
+
+  const handleOpenItem = (item: ShelfItem) => {
+    const win = openItemInSeparateWindow(item);
+    if (win) {
+      onToast(`Opened "${item.title}" in another window`);
+    } else {
+      onPreviewItem(item);
+    }
+  };
+
+  const handlePlayVideo = async (item: ShelfItem) => {
+    setPlayingVideo(item);
+    if (item.type === 'file') {
+      const url = await resolveItemBlobUrl(item);
+      setPlayingVideoBlobUrl(url);
+    } else {
+      setPlayingVideoBlobUrl(null);
+    }
+  };
+
   const handleCopyLink = (item: ShelfItem) => {
-    if (item.url) {
-      navigator.clipboard.writeText(item.url);
+    const textToCopy = item.type === 'link' ? item.url : `${window.location.origin}/#view=${item.id}`;
+    if (textToCopy) {
+      navigator.clipboard.writeText(textToCopy);
       setCopiedId(item.id);
       onToast('Link copied to clipboard!');
       setTimeout(() => setCopiedId(null), 2000);
@@ -194,7 +325,7 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
                 </span>
               </div>
               <p className="text-xs text-[var(--muted)] m-0">
-                Supplementary videos, interactive demos, tutorials, and extension materials.
+                Supplementary videos, interactive demos, tutorials, guide files, and extension materials.
               </p>
             </div>
           </div>
@@ -206,7 +337,7 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
                 type="button"
                 className={`btn sm ${isMasterVisible ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-500/50 bg-amber-500/10 text-amber-700 dark:text-amber-300'}`}
                 onClick={handleToggleMasterVisibility}
-                title="Toggle whether students can see the Extra Resources button"
+                title="Toggle whether students can see the Extra Resources section"
               >
                 {isMasterVisible ? (
                   <>
@@ -236,17 +367,41 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
                 <span className="badge-tag bg-emerald-600 text-white text-xs">Now Playing</span>
                 <span className="font-bold text-sm truncate">{playingVideo.title}</span>
               </div>
-              <button
-                type="button"
-                className="btn sm"
-                onClick={() => setPlayingVideo(null)}
-              >
-                Close Video Player
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn sm"
+                  onClick={() => handleOpenItem(playingVideo)}
+                  title="Open in separate desktop window"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Pop Out Window
+                </button>
+                <button
+                  type="button"
+                  className="btn sm"
+                  onClick={() => {
+                    setPlayingVideo(null);
+                    setPlayingVideoBlobUrl(null);
+                  }}
+                >
+                  Close Player
+                </button>
+              </div>
             </div>
 
             <div className="w-full aspect-video max-h-[380px] bg-black rounded-lg overflow-hidden flex items-center justify-center">
-              {playingVideo.embedUrl || (playingVideo.url && analyseUrl(playingVideo.url).embedUrl) ? (
+              {playingVideo.type === 'file' ? (
+                playingVideoBlobUrl ? (
+                  <video
+                    src={playingVideoBlobUrl}
+                    controls
+                    autoPlay
+                    className="w-full h-full max-h-[380px] object-contain"
+                  />
+                ) : (
+                  <p className="text-white text-xs animate-pulse">Loading video file…</p>
+                )
+              ) : playingVideo.embedUrl || (playingVideo.url && analyseUrl(playingVideo.url).embedUrl) ? (
                 <iframe
                   src={playingVideo.embedUrl || analyseUrl(playingVideo.url || '').embedUrl}
                   title={playingVideo.title}
@@ -290,7 +445,7 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
               className={`btn sm ${activeFilter === 'guide' ? 'primary' : ''}`}
               onClick={() => setActiveFilter('guide')}
             >
-              <BookOpen className="w-3.5 h-3.5" /> Guides & Notes
+              <BookOpen className="w-3.5 h-3.5" /> Guides & Files
             </button>
 
             {categories.length > 0 && (
@@ -329,20 +484,49 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
                 onClick={() => setShowAddForm(!showAddForm)}
               >
                 <Plus className="w-3.5 h-3.5" />
-                {showAddForm ? 'Cancel' : 'Add Video / Extra'}
+                {showAddForm ? 'Cancel' : 'Add Resource / File'}
               </button>
             )}
           </div>
         </div>
 
-        {/* Teacher Add Extra Resource Form */}
+        {/* Teacher Add Extra Resource Form (Links OR File Uploads of Any Size) */}
         {isTeacher && showAddForm && (
-          <form onSubmit={handleAddSubmit} className="p-4 bg-[var(--surface2)] border-b border-[var(--line)] grid gap-3">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-sm flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-emerald-600" />
-                Add Extra Resource or Video
-              </span>
+          <div className="p-4 bg-[var(--surface2)] border-b border-[var(--line)] grid gap-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-emerald-600" />
+                  Add Extra Resource
+                </span>
+
+                {/* Toggle: Upload File vs Web Link */}
+                <div className="flex items-center bg-[var(--surface)] p-0.5 rounded-lg border border-[var(--line)] text-xs">
+                  <button
+                    type="button"
+                    className={`px-2.5 py-1 rounded font-semibold transition-all ${
+                      addMode === 'file'
+                        ? 'bg-[var(--accent)] text-white shadow-xs'
+                        : 'text-[var(--muted)] hover:text-[var(--ink)]'
+                    }`}
+                    onClick={() => setAddMode('file')}
+                  >
+                    <UploadCloud className="w-3.5 h-3.5 inline mr-1" /> Upload Files
+                  </button>
+                  <button
+                    type="button"
+                    className={`px-2.5 py-1 rounded font-semibold transition-all ${
+                      addMode === 'link'
+                        ? 'bg-[var(--accent)] text-white shadow-xs'
+                        : 'text-[var(--muted)] hover:text-[var(--ink)]'
+                    }`}
+                    onClick={() => setAddMode('link')}
+                  >
+                    <Video className="w-3.5 h-3.5 inline mr-1" /> Web Video / Link
+                  </button>
+                </div>
+              </div>
+
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -351,88 +535,192 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
                   onChange={(e) => setVisibleToStudents(e.target.checked)}
                   className="w-4 h-4 rounded text-[var(--accent)] cursor-pointer"
                 />
-                <label htmlFor="addExtraVisible" className="text-xs cursor-pointer select-none font-semibold text-[var(--ink)]">
+                <label
+                  htmlFor="addExtraVisible"
+                  className="text-xs cursor-pointer select-none font-semibold text-[var(--ink)]"
+                >
                   Visible to students
                 </label>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-              <div className="fld sm:col-span-2">
-                <label>Video or Resource URL</label>
-                <input
-                  className="inp text-sm"
-                  placeholder="https://youtube.com/watch?v=... or website link"
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="fld">
-                <label>Duration / Length (optional)</label>
-                <input
-                  className="inp text-sm"
-                  placeholder="e.g. 15 mins, 2h masterclass"
-                  value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                />
-              </div>
-
-              <div className="fld sm:col-span-2">
-                <label>Title</label>
-                <input
-                  className="inp text-sm"
-                  placeholder="e.g. CPU Pipelining Deep Dive Video"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                />
-              </div>
-
-              <div className="fld">
-                <label>Syllabus Topic / Category</label>
-                <select
-                  className="inp text-sm"
-                  value={cat}
-                  onChange={(e) => setCat(e.target.value)}
+            {addMode === 'file' ? (
+              /* File Upload Zone - Supports files of ANY size */
+              <div className="grid gap-3">
+                <div
+                  className={`drop ${dragOver ? 'over' : ''} p-6 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition-colors bg-[var(--surface)] ${dragOver ? 'border-[var(--accent)] bg-[var(--surface2)]' : 'border-[var(--line)]'}`}
+                  tabIndex={0}
+                  role="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOver(true);
+                  }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setDragOver(false);
+                    processFiles(e.dataTransfer.files);
+                  }}
                 >
-                  <option value="__unsorted">General / Unsorted</option>
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  <UploadCloud className="w-8 h-8 text-[var(--accent)] mb-1" />
+                  <b className="text-sm">Drop extra files or videos here, or click to browse</b>
+                  <small className="text-xs text-[var(--muted)] mt-0.5">
+                    No file size limit — MP4/WebM videos, PDF revision guides, Python/Java starter code, worksheets, and presentations.
+                  </small>
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    hidden
+                    multiple
+                    onChange={(e) => {
+                      processFiles(e.target.files);
+                      e.target.value = '';
+                    }}
+                  />
+                </div>
 
-              <div className="fld sm:col-span-3">
-                <label>Note / Why watch / Instructions</label>
-                <input
-                  className="inp text-sm"
-                  placeholder="Key concepts explained: Fetch-decode-execute cycle and ALU architecture"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                />
-              </div>
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="fld">
+                    <label>Title (optional)</label>
+                    <input
+                      className="inp text-sm"
+                      placeholder="Uses original filename if blank"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                    />
+                  </div>
 
-            <div className="actsrow justify-end">
-              <button
-                type="button"
-                className="btn sm"
-                onClick={() => setShowAddForm(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn sm primary"
-                disabled={submitting}
-              >
-                {submitting ? 'Adding…' : 'Add to Extra Resources'}
-              </button>
-            </div>
-          </form>
+                  <div className="fld">
+                    <label>Category / Topic</label>
+                    <select
+                      className="inp text-sm"
+                      value={cat}
+                      onChange={(e) => setCat(e.target.value)}
+                    >
+                      <option value="__unsorted">General / Unsorted</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="fld">
+                    <label>Note / Topic Guidance</label>
+                    <input
+                      className="inp text-sm"
+                      placeholder="e.g. Masterclass video or extra worksheet"
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {uploadQueue.length > 0 && (
+                  <div className="grid gap-1 mt-1">
+                    {uploadQueue.map((item, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between bg-[var(--surface)] px-3 py-1.5 rounded-lg text-xs font-mono border border-[var(--line)]"
+                      >
+                        <span className="truncate max-w-[70%]">{item.name}</span>
+                        <span
+                          className={
+                            item.status.includes('✓')
+                              ? 'text-emerald-600 font-semibold'
+                              : 'text-[var(--muted)]'
+                          }
+                        >
+                          {item.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Link / Online Video Form */
+              <form onSubmit={handleAddSubmit} className="grid gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                  <div className="fld sm:col-span-2">
+                    <label>Video or Resource URL</label>
+                    <input
+                      className="inp text-sm"
+                      placeholder="https://youtube.com/watch?v=... or website link"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="fld">
+                    <label>Duration / Length (optional)</label>
+                    <input
+                      className="inp text-sm"
+                      placeholder="e.g. 15 mins, 2h masterclass"
+                      value={duration}
+                      onChange={(e) => setDuration(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="fld sm:col-span-2">
+                    <label>Title</label>
+                    <input
+                      className="inp text-sm"
+                      placeholder="e.g. CPU Pipelining Deep Dive Video"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="fld">
+                    <label>Topic / Category</label>
+                    <select
+                      className="inp text-sm"
+                      value={cat}
+                      onChange={(e) => setCat(e.target.value)}
+                    >
+                      <option value="__unsorted">General / Unsorted</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="fld sm:col-span-3">
+                    <label>Note / Summary</label>
+                    <input
+                      className="inp text-sm"
+                      placeholder="Brief note or timestamp guide"
+                      value={note}
+                      onChange={(e) => setNote(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="actsrow justify-end mt-1">
+                  <button
+                    type="button"
+                    className="btn sm"
+                    onClick={() => setShowAddForm(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn sm primary"
+                    disabled={submitting}
+                  >
+                    {submitting ? 'Adding…' : 'Add to Extra Resources'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         )}
 
         {/* Resources Grid / List */}
@@ -445,7 +733,7 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
                 {searchQuery
                   ? `No extra resources match "${searchQuery}".`
                   : isTeacher
-                  ? 'Add your first video, tutorial link, or extension reading using the button above!'
+                  ? 'Add your first video, file, tutorial link, or extension guide using the button above!'
                   : 'Your teacher has not published any extra resources for this topic yet.'}
               </p>
             </div>
@@ -453,21 +741,42 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {displayedItems.map((item) => {
                 const analysis = item.url ? analyseUrl(item.url) : null;
-                const isVideo = item.kind === 'video' || analysis?.detectedKind === 'video' || ['mp4', 'webm'].includes(item.ext || '');
+                const isVideo =
+                  item.kind === 'video' ||
+                  analysis?.detectedKind === 'video' ||
+                  ['mp4', 'webm', 'mov'].includes(item.ext || '');
                 const isHidden = item.visibleToStudents === false;
                 const categoryObj = categories.find((c) => c.id === item.cat);
 
                 return (
                   <div
                     key={item.id}
-                    className={`p-3.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] hover:border-[var(--accent)] transition-all flex flex-col justify-between gap-2.5 ${isHidden ? 'opacity-85 border-dashed border-amber-500/40' : ''}`}
+                    className={`p-3.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] hover:border-[var(--accent)] transition-all flex flex-col justify-between gap-2.5 ${
+                      isHidden ? 'opacity-85 border-dashed border-amber-500/40' : ''
+                    }`}
                   >
                     <div>
                       {/* Top tags */}
                       <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className={`text-[11px] font-mono px-2 py-0.5 rounded font-semibold uppercase ${isVideo ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'bg-[var(--surface2)] text-[var(--muted)]'}`}>
-                            {isVideo ? '🎥 Video' : (item.ext?.toUpperCase() || 'Resource')}
+                          <span
+                            className={`text-[11px] font-mono px-2 py-0.5 rounded font-semibold uppercase ${
+                              isVideo
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                : 'bg-blue-500/10 text-blue-700 dark:text-blue-300'
+                            }`}
+                          >
+                            {isVideo ? (
+                              <span className="flex items-center gap-1">
+                                <Film className="w-3 h-3" /> Video
+                              </span>
+                            ) : item.type === 'file' ? (
+                              <span className="flex items-center gap-1">
+                                <FileText className="w-3 h-3" /> {item.ext?.toUpperCase() || 'FILE'}
+                              </span>
+                            ) : (
+                              'Resource'
+                            )}
                           </span>
 
                           {categoryObj && (
@@ -475,6 +784,12 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
                               {categoryObj.name}
                             </span>
                           )}
+
+                          {item.type === 'file' && item.size ? (
+                            <span className="text-[11px] font-mono text-[var(--muted)]">
+                              · {formatFileSize(item.size)}
+                            </span>
+                          ) : null}
 
                           {item.videoDuration && (
                             <span className="text-[11px] font-mono text-[var(--muted)] flex items-center gap-1">
@@ -496,9 +811,9 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
                         className="font-bold text-sm text-[var(--ink)] hover:text-[var(--accent)] cursor-pointer line-clamp-2 m-0"
                         onClick={() => {
                           if (isVideo) {
-                            setPlayingVideo(item);
+                            handlePlayVideo(item);
                           } else {
-                            onPreviewItem(item);
+                            handleOpenItem(item);
                           }
                         }}
                       >
@@ -514,36 +829,41 @@ export const ExtraResourcesModal: React.FC<ExtraResourcesModalProps> = ({
                     </div>
 
                     {/* Bottom Actions */}
-                    <div className="flex items-center justify-between pt-2 border-t border-[var(--line)]/50 mt-1">
-                      <div className="flex items-center gap-1.5">
+                    <div className="flex items-center justify-between pt-2 border-t border-[var(--line)]/50 mt-1 flex-wrap gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         {isVideo ? (
                           <button
                             type="button"
-                            className="btn sm primary py-1 px-2.5 text-xs font-semibold"
-                            onClick={() => setPlayingVideo(item)}
+                            className="btn sm primary py-1 px-2.5 text-xs font-semibold flex items-center gap-1"
+                            onClick={() => handlePlayVideo(item)}
                           >
                             <Play className="w-3 h-3 fill-current" /> Watch Video
                           </button>
-                        ) : (
+                        ) : null}
+
+                        <button
+                          type="button"
+                          className="btn sm py-1 px-2.5 text-xs font-semibold flex items-center gap-1"
+                          onClick={() => handleOpenItem(item)}
+                          title="Open full view in desktop window"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>Open in Window</span>
+                        </button>
+
+                        {/* Direct download for file uploads */}
+                        {item.type === 'file' && (
                           <button
                             type="button"
-                            className="btn sm py-1 px-2.5 text-xs font-semibold"
-                            onClick={() => onPreviewItem(item)}
-                          >
-                            Open Resource
-                          </button>
-                        )}
-
-                        {item.url && (
-                          <a
-                            href={item.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             className="icon"
-                            title="Open in new window"
+                            onClick={async () => {
+                              onToast(`Downloading ${item.fileName || item.title}…`);
+                              await downloadShelfFile(item);
+                            }}
+                            title="Download file"
                           >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
                         )}
 
                         <button

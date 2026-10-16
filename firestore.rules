@@ -36,6 +36,16 @@ service cloud.firestore {
              (!('embedUrl' in data) || (data.embedUrl is string && data.embedUrl.size() <= 2048)) &&
              (!('timelineDate' in data) || (data.timelineDate is string && data.timelineDate.size() <= 50)) &&
              (!('timelinePhase' in data) || (data.timelinePhase is string && data.timelinePhase.size() <= 50)) &&
+              (!('isLargeFile' in data) || data.isLargeFile is bool) &&
+              (!('hasStoredContent' in data) || data.hasStoredContent is bool) &&
+              (!('markSchemeTitle' in data) || (data.markSchemeTitle is string && data.markSchemeTitle.size() <= 200)) &&
+              (!('markSchemeUrl' in data) || (data.markSchemeUrl is string && data.markSchemeUrl.size() <= 2048)) &&
+              (!('markSchemeFileName' in data) || (data.markSchemeFileName is string && data.markSchemeFileName.size() <= 255)) &&
+              (!('markSchemeFileData' in data) || (data.markSchemeFileData is string && data.markSchemeFileData.size() <= 1048576)) &&
+              (!('markSchemeExt' in data) || (data.markSchemeExt is string && data.markSchemeExt.size() <= 30)) &&
+              (!('markSchemeSize' in data) || data.markSchemeSize is number) &&
+              (!('markSchemeVisibleToStudents' in data) || data.markSchemeVisibleToStudents is bool) &&
+              (!('markSchemeIsLargeFile' in data) || data.markSchemeIsLargeFile is bool) &&
              (!('createdAt' in data) || data.createdAt is number) &&
              (!('updatedAt' in data) || data.updatedAt is number);
     }
@@ -69,6 +79,11 @@ service cloud.firestore {
       allow read: if true;
       allow create, update: if isValidId(linkId) && isValidLink(request.resource.data);
       allow delete: if isValidId(linkId);
+    }
+
+    match /fileChunks/{chunkId} {
+      allow read: if true;
+      allow create, update, delete: if isValidId(chunkId);
     }
 
     match /config/{configId} {

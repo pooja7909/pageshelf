@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { Category, ShelfItem } from '../types';
 import { analyseUrl, formatFileSize } from '../utils/linkAnalyzer';
-import { openFileInDesktopTab, downloadShelfFile } from '../utils/fileViewer';
+import { openItemInSeparateWindow, openFileInDesktopTab, downloadShelfFile } from '../utils/fileViewer';
 
 interface DrawerItemProps {
   category: Category;
@@ -299,8 +299,16 @@ export const DrawerItem: React.FC<DrawerItemProps> = ({
                   <button
                     type="button"
                     className="ltitle"
-                    onClick={() => onPreview(item)}
-                    title="Click to preview or open"
+                    onClick={() => {
+                      const win = openItemInSeparateWindow(item);
+                      if (win) {
+                        onToast(`Opened "${item.title}" in another window`);
+                      } else {
+                        onPreview(item);
+                        onToast(`Opened in full view (allow popups to auto-open in new window)`);
+                      }
+                    }}
+                    title="Click to open full view in another window"
                   >
                     {item.title}
                   </button>
@@ -330,40 +338,41 @@ export const DrawerItem: React.FC<DrawerItemProps> = ({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="icon"
-                    title="Open in new tab"
+                    title="Open web app in new window/tab"
                     aria-label={`Open ${item.title}`}
                   >
                     <ExternalLink className="w-4 h-4" />
                   </a>
                 )}
 
-                {/* View file directly on desktop in a new browser tab */}
+                {/* View file directly on desktop in a new browser window */}
                 {item.type === 'file' && (
                   <button
                     type="button"
                     className="icon text-blue-600 dark:text-blue-400"
                     onClick={() => {
-                      const ok = openFileInDesktopTab(item);
-                      if (ok) {
-                        onToast(`Opened ${item.fileName || item.title} in desktop tab`);
+                      const win = openItemInSeparateWindow(item);
+                      if (win) {
+                        onToast(`Opened "${item.fileName || item.title}" in another window`);
                       } else {
                         onPreview(item);
+                        onToast(`Opened in full view (allow popups to auto-open in new window)`);
                       }
                     }}
-                    title="View file on desktop (new tab)"
-                    aria-label={`View ${item.title} on desktop`}
+                    title="Open in another window"
+                    aria-label={`View ${item.title} in another window`}
                   >
                     <ExternalLink className="w-4 h-4" />
                   </button>
                 )}
 
-                {/* Preview / Read in shelf */}
+                {/* Full View / Read in shelf */}
                 <button
                   type="button"
                   className="icon"
                   onClick={() => onPreview(item)}
-                  title={item.type === 'file' ? 'Open desktop file reader modal' : 'Preview in shelf'}
-                  aria-label={`Preview ${item.title}`}
+                  title="Open full view modal"
+                  aria-label={`Full view of ${item.title}`}
                 >
                   <Maximize2 className="w-4 h-4" />
                 </button>
@@ -373,9 +382,9 @@ export const DrawerItem: React.FC<DrawerItemProps> = ({
                   <button
                     type="button"
                     className="icon"
-                    onClick={() => {
-                      const ok = downloadShelfFile(item);
-                      if (ok) onToast(`Downloading ${item.fileName || item.title}`);
+                    onClick={async () => {
+                      onToast(`Downloading ${item.fileName || item.title}…`);
+                      await downloadShelfFile(item);
                     }}
                     title="Download file to computer"
                     aria-label={`Download ${item.title}`}

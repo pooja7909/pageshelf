@@ -37,6 +37,9 @@ import { AssessmentsModal } from './components/AssessmentsModal';
 import { TimelineModal } from './components/TimelineModal';
 import { VisibilityManagerModal } from './components/VisibilityManagerModal';
 import { ShareModal } from './components/ShareModal';
+import { StandaloneViewer } from './components/StandaloneViewer';
+import { saveFileToIndexedDB, deleteFileFromIndexedDB } from './utils/storageDB';
+import { createMarkSchemeShelfItem } from './utils/fileViewer';
 import { analyseUrl } from './utils/linkAnalyzer';
 
 const DEFAULT_PASSCODE = 'teacher123';
@@ -300,9 +303,10 @@ export default function App() {
       const hash = window.location.hash.toLowerCase();
       const params = new URLSearchParams(window.location.search);
       return (
+        hash.includes('teacher') ||
+        hash.includes('admin') ||
         path.includes('/teacher') ||
         path.includes('/admin') ||
-        hash.includes('teacher') ||
         params.has('teacher') ||
         params.get('view') === 'teacher'
       );
@@ -311,22 +315,40 @@ export default function App() {
     }
   };
 
-  // Teacher mode & authentication state
-  const [isTeacher, setIsTeacher] = useState<boolean>(() => {
-    // If student URL (e.g. /student or ?student), ALWAYS lock out teacher mode
-    if (isStudentUrl()) {
-      try {
-        sessionStorage.removeItem('ps.teacherMode');
-      } catch {}
-      return false;
-    }
-    // Check if previously unlocked in this browser session
+  // Standalone full-screen file viewer detection: #view=itemId
+  const [standaloneViewerItemId, setStandaloneViewerItemId] = useState<string | null>(() => {
     try {
-      const saved = sessionStorage.getItem('ps.teacherMode');
-      return saved === 'true';
-    } catch {
-      return false;
-    }
+      const hash = window.location.hash;
+      const match = hash.match(/[#&]view=([^&]+)/);
+      if (match) return decodeURIComponent(match[1]);
+      const params = new URLSearchParams(window.location.search);
+      const viewParam = params.get('view');
+      if (viewParam && viewParam !== 'student' && viewParam !== 'teacher') return viewParam;
+    } catch {}
+    return null;
+  });
+
+  // Teacher mode & authentication state - Default is ALWAYS Student View
+  const [isTeacher, setIsTeacher] = useState<boolean>(() => {
+    try {
+      // If student session or student URL, permanently lock in student mode across all navigation
+      if (
+        sessionStorage.getItem('ps.isStudentSession') === 'true' ||
+        localStorage.getItem('ps.isStudentSession') === 'true' ||
+        isStudentUrl()
+      ) {
+        sessionStorage.setItem('ps.isStudentSession', 'true');
+        localStorage.setItem('ps.isStudentSession', 'true');
+        sessionStorage.removeItem('ps.teacherMode');
+        return false;
+      }
+      // Only unlock teacher if explicitly on teacher route and previously authenticated
+      if (isTeacherUrl()) {
+        return sessionStorage.getItem('ps.teacherMode') === 'true';
+      }
+    } catch {}
+    // Base URL / ALWAYS defaults to safe Student View
+    return false;
   });
   const [studentPreview, setStudentPreview] = useState(false);
   const [passcodeModalOpen, setPasscodeModalOpen] = useState(false);
@@ -357,19 +379,48 @@ export default function App() {
     }, 2500);
   }, []);
 
+  // Listen to hash changes (for standalone viewer and teacher portal)
+  useEffect(() => {
+    const handleHash = () => {
+      try {
+        const hash = window.location.hash;
+        const match = hash.match(/[#&]view=([^&]+)/);
+        if (match) {
+          setStandaloneViewerItemId(decodeURIComponent(match[1]));
+        } else {
+          setStandaloneViewerItemId(null);
+        }
+
+        if (hash.includes('teacher') || hash.includes('admin')) {
+          const saved = sessionStorage.getItem('ps.teacherMode') === 'true';
+          if (!saved) {
+            setIsChangingPasscode(false);
+            setPasscodeModalOpen(true);
+          } else {
+            setIsTeacher(true);
+          }
+        }
+      } catch {}
+    };
+
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
+
   // Initialize and check URL parameters & routes on boot
   useEffect(() => {
     testConnection();
 
     if (isStudentUrl()) {
-      // Standalone student link: force student mode and purge any teacher session token
+      // Force student mode and purge any teacher session token
       setIsTeacher(false);
       setStudentPreview(false);
       try {
+        sessionStorage.setItem('ps.isStudentSession', 'true');
+        localStorage.setItem('ps.isStudentSession', 'true');
         sessionStorage.removeItem('ps.teacherMode');
       } catch {}
     } else if (isTeacherUrl()) {
-      // Explicit teacher route: check if already unlocked, else prompt for passcode
       const saved = sessionStorage.getItem('ps.teacherMode') === 'true';
       if (!saved) {
         setIsChangingPasscode(false);
@@ -378,19 +429,7 @@ export default function App() {
         setIsTeacher(true);
       }
     }
-
-    const params = new URLSearchParams(window.location.search);
-    const keyParam = params.get('key');
-    if (keyParam) {
-      if (keyParam === config.teacherPasscodeHash || keyParam === DEFAULT_PASSCODE) {
-        setIsTeacher(true);
-        try {
-          sessionStorage.setItem('ps.teacherMode', 'true');
-        } catch {}
-        showToast('Teacher mode unlocked via URL key');
-      }
-    }
-  }, [config.teacherPasscodeHash, showToast]);
+  }, []);
 
   // Firestore real-time synchronization
   useEffect(() => {
@@ -742,8 +781,13 @@ export default function App() {
     if (inputPasscode === currentPass) {
       setIsTeacher(true);
       setStudentPreview(false);
-      sessionStorage.setItem('ps.teacherMode', 'true');
-      showToast('Teacher mode unlocked.');
+      try {
+        sessionStorage.removeItem('ps.isStudentSession');
+        localStorage.removeItem('ps.isStudentSession');
+        sessionStorage.setItem('ps.teacherMode', 'true');
+      } catch {}
+      window.location.hash = '#teacher';
+      showToast('Teacher Portal unlocked.');
       return true;
     }
     return false;
@@ -754,10 +798,10 @@ export default function App() {
     setStudentPreview(false);
     try {
       sessionStorage.removeItem('ps.teacherMode');
+      sessionStorage.setItem('ps.isStudentSession', 'true');
+      localStorage.setItem('ps.isStudentSession', 'true');
     } catch {}
-    if (window.location.pathname.toLowerCase().includes('/teacher')) {
-      window.history.pushState({}, '', '/');
-    }
+    window.location.hash = '';
     showToast('Controls locked. Switched to Student View.');
   };
 
@@ -782,12 +826,12 @@ export default function App() {
   };
 
   const handleCopyStudentLink = () => {
-    const studentStandaloneUrl = `${window.location.origin}/student`;
+    const studentUrl = `${window.location.origin}/#student`;
     try {
-      navigator.clipboard.writeText(studentStandaloneUrl);
+      navigator.clipboard.writeText(studentUrl);
     } catch {}
     setShareModalOpen(true);
-    showToast('Standalone student link copied!');
+    showToast('Student link copied!');
   };
 
   const handleUpdateConfig = async (newCfg: Partial<ShelfConfig>) => {
@@ -812,7 +856,8 @@ export default function App() {
     const nextLinks = links.map((l) => ({ ...l, visibleToStudents: visible, updatedAt: Date.now() }));
     setLinks(nextLinks);
     try {
-      localStorage.setItem(LOCAL_STORAGE_LINKS, JSON.stringify(nextLinks));
+      const safeLinks = nextLinks.map((l) => (l.fileData && l.fileData.length > 50000 ? { ...l, fileData: '' } : l));
+      localStorage.setItem(LOCAL_STORAGE_LINKS, JSON.stringify(safeLinks));
     } catch {}
 
     showToast(visible ? 'All resources are now visible to students.' : 'All resources are now hidden from students.');
@@ -830,6 +875,25 @@ export default function App() {
   const handleAddLink = async (item: Partial<ShelfItem>): Promise<boolean> => {
     const newId = 'item_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     
+    // Save file blob to high-capacity IndexedDB storage (handles files of any size)
+    if (item.fileBlob) {
+      await saveFileToIndexedDB(newId, item.fileBlob);
+    } else if (item.fileData) {
+      await saveFileToIndexedDB(newId, item.fileData);
+    }
+
+    // Save attached mark scheme file blob to IndexedDB
+    if (item.markSchemeFileBlob) {
+      await saveFileToIndexedDB(`${newId}_markscheme`, item.markSchemeFileBlob);
+      await saveFileToIndexedDB(`${newId}_ms`, item.markSchemeFileBlob);
+    } else if (item.markSchemeFileData) {
+      await saveFileToIndexedDB(`${newId}_markscheme`, item.markSchemeFileData);
+      await saveFileToIndexedDB(`${newId}_ms`, item.markSchemeFileData);
+    }
+
+    const isLarge = (item.size && item.size > 600 * 1024) || !!item.isLargeFile;
+    const isMsLarge = (item.markSchemeSize && item.markSchemeSize > 600 * 1024) || !!item.markSchemeIsLargeFile;
+
     // Construct clean object without undefined values for Firestore
     const newItem: ShelfItem = {
       id: newId,
@@ -839,10 +903,12 @@ export default function App() {
       cat: item.cat || '',
       note: item.note || '',
       fileName: item.fileName || '',
-      fileData: item.fileData || '',
+      fileData: isLarge ? '' : (item.fileData || ''),
       ext: item.ext || '',
       size: item.size || 0,
       visibleToStudents: item.visibleToStudents ?? true,
+      isLargeFile: isLarge,
+      hasStoredContent: true,
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
@@ -856,11 +922,29 @@ export default function App() {
     if (item.timelineDate) newItem.timelineDate = item.timelineDate;
     if (item.timelinePhase) newItem.timelinePhase = item.timelinePhase;
 
-    // Update local cache immediately
+    // Mark scheme fields
+    if (item.markSchemeTitle) newItem.markSchemeTitle = item.markSchemeTitle;
+    if (item.markSchemeUrl) newItem.markSchemeUrl = item.markSchemeUrl;
+    if (item.markSchemeFileName) newItem.markSchemeFileName = item.markSchemeFileName;
+    if (item.markSchemeFileData) newItem.markSchemeFileData = isMsLarge ? '' : item.markSchemeFileData;
+    if (item.markSchemeExt) newItem.markSchemeExt = item.markSchemeExt;
+    if (item.markSchemeSize !== undefined) newItem.markSchemeSize = item.markSchemeSize;
+    if (item.markSchemeVisibleToStudents !== undefined) newItem.markSchemeVisibleToStudents = item.markSchemeVisibleToStudents;
+    if (isMsLarge) newItem.markSchemeIsLargeFile = true;
+
+    // Keep fileData in memory for immediate viewing
+    const memoryItem = {
+      ...newItem,
+      fileData: item.fileData || '',
+      markSchemeFileData: item.markSchemeFileData || ''
+    };
+
+    // Update local cache immediately with safe size
     setLinks((prev) => {
-      const next = [newItem, ...prev];
+      const next = [memoryItem, ...prev];
       try {
-        localStorage.setItem(LOCAL_STORAGE_LINKS, JSON.stringify(next));
+        const safeLinks = next.map((l) => (l.fileData && l.fileData.length > 50000 ? { ...l, fileData: '' } : l));
+        localStorage.setItem(LOCAL_STORAGE_LINKS, JSON.stringify(safeLinks));
       } catch {}
       return next;
     });
@@ -880,26 +964,37 @@ export default function App() {
     }
   };
 
-  const handleUpdateItem = async (updated: Partial<ShelfItem>) => {
-    if (!editItem) return;
-    const nextLinks = links.map((l) => (l.id === editItem.id ? { ...l, ...updated, updatedAt: Date.now() } : l));
+  const handleUpdateItem = async (updated: Partial<ShelfItem>, itemIdOverride?: string) => {
+    const targetId = itemIdOverride || updated.id || editItem?.id;
+    if (!targetId) return;
+
+    if (updated.markSchemeFileBlob) {
+      await saveFileToIndexedDB(`${targetId}_markscheme`, updated.markSchemeFileBlob);
+      await saveFileToIndexedDB(`${targetId}_ms`, updated.markSchemeFileBlob);
+    }
+    if (updated.fileBlob) {
+      await saveFileToIndexedDB(targetId, updated.fileBlob);
+    }
+
+    const nextLinks = links.map((l) => (l.id === targetId ? { ...l, ...updated, updatedAt: Date.now() } : l));
     setLinks(nextLinks);
     try {
-      localStorage.setItem(LOCAL_STORAGE_LINKS, JSON.stringify(nextLinks));
+      const safeLinks = nextLinks.map((l) => (l.fileData && l.fileData.length > 50000 ? { ...l, fileData: '' } : l));
+      localStorage.setItem(LOCAL_STORAGE_LINKS, JSON.stringify(safeLinks));
     } catch {}
 
     try {
       const cleanUpdated: Record<string, any> = { updatedAt: Date.now() };
       for (const [k, v] of Object.entries(updated)) {
-        if (v !== undefined) {
+        if (v !== undefined && k !== 'fileBlob' && k !== 'markSchemeFileBlob') {
           cleanUpdated[k] = v;
         }
       }
-      await updateDoc(doc(db, 'links', editItem.id), cleanUpdated);
+      await updateDoc(doc(db, 'links', targetId), cleanUpdated);
       showToast('Resource updated.');
     } catch (err) {
       try {
-        handleFirestoreError(err, OperationType.UPDATE, `links/${editItem.id}`);
+        handleFirestoreError(err, OperationType.UPDATE, `links/${targetId}`);
       } catch {
         setQuotaExceeded(true);
         showToast('Updated in local storage (Firestore quota active).');
@@ -908,10 +1003,14 @@ export default function App() {
   };
 
   const handleDeleteItem = async (itemId: string) => {
+    deleteFileFromIndexedDB(itemId);
+    deleteFileFromIndexedDB(`${itemId}_markscheme`);
+    deleteFileFromIndexedDB(`${itemId}_ms`);
     const nextLinks = links.filter((l) => l.id !== itemId);
     setLinks(nextLinks);
     try {
-      localStorage.setItem(LOCAL_STORAGE_LINKS, JSON.stringify(nextLinks));
+      const safeLinks = nextLinks.map((l) => (l.fileData && l.fileData.length > 50000 ? { ...l, fileData: '' } : l));
+      localStorage.setItem(LOCAL_STORAGE_LINKS, JSON.stringify(safeLinks));
     } catch {}
 
     try {
@@ -1114,6 +1213,59 @@ export default function App() {
   const totalLinkCount = visibleLinks.filter((l) => l.type === 'link').length;
   const totalFileCount = visibleLinks.filter((l) => l.type === 'file').length;
 
+  // Dedicated Full-Window Standalone File Viewer (#view=itemId)
+  const standaloneItem = useMemo(() => {
+    if (!standaloneViewerItemId) return null;
+    const direct = links.find((l) => l.id === standaloneViewerItemId);
+    if (direct) return direct;
+    if (standaloneViewerItemId.endsWith('_ms')) {
+      const parentId = standaloneViewerItemId.replace(/_ms$/, '');
+      const parent = links.find((l) => l.id === parentId);
+      if (parent) {
+        return createMarkSchemeShelfItem(parent);
+      }
+    }
+    return null;
+  }, [standaloneViewerItemId, links]);
+
+  if (standaloneViewerItemId && standaloneItem) {
+    return (
+      <StandaloneViewer
+        item={standaloneItem}
+        onBackToShelf={() => {
+          setStandaloneViewerItemId(null);
+          window.location.hash = '';
+        }}
+        onToast={showToast}
+      />
+    );
+  }
+
+  if (standaloneViewerItemId && !standaloneItem) {
+    return (
+      <div className="fixed inset-0 z-[1000] flex flex-col items-center justify-center bg-[var(--bg)] text-[var(--ink)] p-4 text-center">
+        {loading ? (
+          <div className="text-sm font-medium animate-pulse">Loading file view…</div>
+        ) : (
+          <div className="space-y-3 max-w-sm">
+            <h2 className="text-lg font-bold">File not found</h2>
+            <p className="text-xs text-[var(--muted)]">The requested resource could not be found or has been moved.</p>
+            <button
+              type="button"
+              className="btn primary sm"
+              onClick={() => {
+                setStandaloneViewerItemId(null);
+                window.location.hash = '';
+              }}
+            >
+              Return to Course Shelf
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="wrap">
       {/* Top Header */}
@@ -1136,21 +1288,8 @@ export default function App() {
 
           <ThemeToggle />
 
-          {/* Teacher Mode Button in Header */}
-          {!isTeacher ? (
-            <button
-              type="button"
-              className="btn sm"
-              onClick={() => {
-                setIsChangingPasscode(false);
-                setPasscodeModalOpen(true);
-              }}
-              title="Teacher Unlock (Passcode required)"
-            >
-              <Lock className="w-3.5 h-3.5 text-[var(--accent)]" />
-              Teacher Access
-            </button>
-          ) : (
+          {/* Teacher Mode Button in Header (shown only when teacher is logged in) */}
+          {isTeacher && (
             <button
               type="button"
               className="btn sm danger"
@@ -1598,6 +1737,28 @@ export default function App() {
         onClose={() => setShareModalOpen(false)}
         onToast={showToast}
       />
+
+      {/* Student/Course Footer */}
+      <footer className="mt-12 py-6 border-t border-[var(--line)] text-xs text-[var(--muted)] flex items-center justify-between flex-wrap gap-3">
+        <div>
+          Computer Science Course Shelf · Interactive Web Pages & Learning Files
+        </div>
+        <div className="flex items-center gap-3">
+          {!isTeacher && (
+            <button
+              type="button"
+              className="text-[var(--muted)] hover:text-[var(--ink)] flex items-center gap-1.5 font-mono text-[11px] px-2 py-1 rounded hover:bg-[var(--surface2)]"
+              onClick={() => {
+                setIsChangingPasscode(false);
+                setPasscodeModalOpen(true);
+              }}
+              title="Teacher Portal Access (Passcode required)"
+            >
+              <Lock className="w-3 h-3 text-[var(--muted)]" /> Teacher Portal
+            </button>
+          )}
+        </div>
+      </footer>
 
       {/* Toast Notification */}
       {toastMessage && <div className="toast-msg">{toastMessage}</div>}

@@ -122,35 +122,31 @@ export const AddResourceForm: React.FC<AddResourceFormProps> = ({
       const file = fileList[i];
       const ext = (file.name.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase() || '';
 
-      // Check file size (Firestore document size limit is 1MB)
-      if (file.size > 800 * 1024) {
-        setUploadQueue((prev) =>
-          prev.map((item, idx) =>
-            idx === i ? { ...item, status: `Too large (${formatFileSize(file.size)}). Limit is 800 KB for direct sync.` } : item
-          )
-        );
-        continue;
-      }
-
       try {
-        // Read content as base64 or text
+        let fileData = '';
         const isText = ['txt', 'md', 'html', 'js', 'ts', 'py', 'java', 'json', 'csv', 'sql'].includes(ext);
-        const fileData = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          if (isText) {
-            reader.readAsText(file);
-          } else {
-            reader.readAsDataURL(file);
-          }
-        });
+
+        // For files <= 600KB, read content directly for instant cloud sync
+        if (file.size <= 600 * 1024) {
+          fileData = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            if (isText) {
+              reader.readAsText(file);
+            } else {
+              reader.readAsDataURL(file);
+            }
+          });
+        }
 
         const ok = await onAddLink({
           type: 'file',
           title: file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || file.name,
           fileName: file.name,
           fileData,
+          fileBlob: file, // Full file blob for high-capacity IndexedDB storage
+          isLargeFile: file.size > 600 * 1024,
           ext,
           size: file.size,
           cat: cat === '__unsorted' ? '' : cat,
@@ -318,7 +314,7 @@ export const AddResourceForm: React.FC<AddResourceFormProps> = ({
             <UploadCloud />
             <b>Drop files here, or click to choose</b>
             <small>
-              Interactive HTML pages, Python/Java source files, Markdown, PDFs, images (PNG, JPG, SVG), and worksheets.
+              Files of any size supported (no limits) — HTML web pages, code files, Markdown notes, PDFs, images, datasets, and videos.
             </small>
             <input
               type="file"

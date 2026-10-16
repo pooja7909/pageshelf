@@ -25,10 +25,24 @@ export interface ShelfItem {
   ext?: string;
   size?: number;
   visibleToStudents?: boolean;
+  // Large file handling
+  isLargeFile?: boolean;
+  hasStoredContent?: boolean;
+  fileBlob?: Blob;
   // Assessment fields
   assessmentType?: AssessmentType;
   dueDate?: string;
   maxMarks?: number;
+  // Mark scheme fields (attached solutions or grading rubric)
+  markSchemeTitle?: string;
+  markSchemeUrl?: string;
+  markSchemeFileName?: string;
+  markSchemeFileData?: string;
+  markSchemeExt?: string;
+  markSchemeSize?: number;
+  markSchemeVisibleToStudents?: boolean;
+  markSchemeFileBlob?: Blob;
+  markSchemeIsLargeFile?: boolean;
   // Video fields
   videoDuration?: string;
   embedUrl?: string;

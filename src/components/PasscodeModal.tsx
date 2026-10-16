@@ -118,18 +118,7 @@ export const PasscodeModal: React.FC<PasscodeModalProps> = ({
             </div>
           )}
 
-          {!isChangingPasscode && currentPasscode === 'teacher123' && (
-            <div className="text-xs bg-[var(--surface2)] p-2.5 rounded-lg text-[var(--muted)] flex items-center justify-between">
-              <span>Default setup key: <code className="font-mono font-bold text-[var(--ink)]">teacher123</code></span>
-              <button
-                type="button"
-                className="text-[var(--accent)] hover:underline font-medium ml-2"
-                onClick={() => setPasscode('teacher123')}
-              >
-                Auto-fill
-              </button>
-            </div>
-          )}
+
 
           {error && <div className="text-sm text-[var(--warn)] font-medium">{error}</div>}
           {success && (

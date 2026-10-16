@@ -214,6 +214,8 @@ export function getFileTypeDetails(item: ShelfItem): FileTypeDetails {
   };
 }
 
+import { getFileFromIndexedDB } from './storageDB';
+
 /**
  * Creates a browser Blob URL from shelf item fileData.
  * Allows viewing on desktop without downloading to disk.
@@ -261,51 +263,119 @@ export function createBlobUrlFromFile(item: ShelfItem): string | null {
 }
 
 /**
- * Opens a file in a dedicated desktop browser window/tab.
- * This lets students read PDFs, code, notes, and worksheets natively on their desktop.
+ * Asynchronously resolves a blob URL from either fileData or IndexedDB
+ * (supports files of any size without 800KB or memory constraints).
  */
-export function openFileInDesktopTab(item: ShelfItem): boolean {
-  try {
-    const details = getFileTypeDetails(item);
-    const blobUrl = createBlobUrlFromFile(item);
-    if (!blobUrl) return false;
+export async function resolveItemBlobUrl(item: ShelfItem): Promise<string | null> {
+  // First check if direct fileData is available
+  if (item.fileData) {
+    const directUrl = createBlobUrlFromFile(item);
+    if (directUrl) return directUrl;
+  }
 
-    // For HTML files, we can open with title wrapper or directly
-    const win = window.open(blobUrl, '_blank');
+  // Check high-capacity IndexedDB for large or cached files
+  try {
+    let stored = await getFileFromIndexedDB(item.id);
+    if (!stored && item.id.endsWith('_ms')) {
+      const altKey = item.id.replace(/_ms$/, '_markscheme');
+      stored = await getFileFromIndexedDB(altKey);
+    }
+    if (stored) {
+      const details = getFileTypeDetails(item);
+      if (stored instanceof Blob) {
+        return URL.createObjectURL(stored);
+      }
+      if (typeof stored === 'string') {
+        if (stored.startsWith('data:')) {
+          return createBlobUrlFromFile({ ...item, fileData: stored });
+        }
+        const blob = new Blob([stored], { type: details.mimeType });
+        return URL.createObjectURL(blob);
+      }
+    }
+  } catch (err) {
+    console.warn('Could not read from IndexedDB for item', item.id, err);
+  }
+
+  return item.url || null;
+}
+
+/**
+ * Automatically opens an item (file or web link) in a dedicated separate desktop browser window/tab.
+ * This ensures files are never cramped or "too small on the screen".
+ */
+export function openItemInSeparateWindow(item: ShelfItem): Window | null {
+  try {
+    // Case 1: Web link (opens external web app or website in a clean new tab)
+    if (item.type === 'link' && item.url) {
+      const win = window.open(item.url, '_blank');
+      if (win) win.focus();
+      return win;
+    }
+
+    // Case 2: File (opens dedicated standalone desktop viewer window with #view=itemId)
+    const viewerUrl = `${window.location.origin}${window.location.pathname}#view=${encodeURIComponent(item.id)}`;
+    const win = window.open(viewerUrl, '_blank');
     if (win) {
       win.focus();
-      return true;
+      return win;
     }
-    return false;
+
+    // Fallback if direct blob works
+    const blobUrl = createBlobUrlFromFile(item);
+    if (blobUrl) {
+      const fallbackWin = window.open(blobUrl, '_blank');
+      if (fallbackWin) {
+        fallbackWin.focus();
+        return fallbackWin;
+      }
+    }
+    return null;
   } catch (err) {
-    console.error('Failed to open file in desktop tab:', err);
-    return false;
+    console.error('Failed to open item in separate window:', err);
+    return null;
   }
 }
 
 /**
- * Downloads a file to disk
+ * Opens a file in a dedicated desktop browser window/tab.
+ * Kept for backwards compatibility.
  */
-export function downloadShelfFile(item: ShelfItem): boolean {
-  if (!item.fileData && !item.url) return false;
-  try {
-    const a = document.createElement('a');
-    let urlToUse = item.fileData || item.url || '';
+export function openFileInDesktopTab(item: ShelfItem): boolean {
+  const win = openItemInSeparateWindow(item);
+  return win !== null;
+}
 
-    // If it's a text file stored as raw text, wrap in a temporary blob
-    if (item.type === 'file' && item.fileData && !item.fileData.startsWith('data:')) {
-      const details = getFileTypeDetails(item);
-      const blob = new Blob([item.fileData], { type: details.mimeType });
-      urlToUse = URL.createObjectURL(blob);
+/**
+ * Downloads a file to disk, with support for any file size from IndexedDB
+ */
+export async function downloadShelfFile(item: ShelfItem): Promise<boolean> {
+  try {
+    let urlToUse: string | null = null;
+
+    if (item.fileData) {
+      if (item.fileData.startsWith('data:')) {
+        urlToUse = createBlobUrlFromFile(item);
+      } else {
+        const details = getFileTypeDetails(item);
+        const blob = new Blob([item.fileData], { type: details.mimeType });
+        urlToUse = URL.createObjectURL(blob);
+      }
+    } else {
+      urlToUse = await resolveItemBlobUrl(item);
     }
 
+    if (!urlToUse) return false;
+
+    const a = document.createElement('a');
     a.href = urlToUse;
     a.download = item.fileName || item.title || 'download';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     return true;
-  } catch {
+  } catch (err) {
+    console.warn('Error downloading file:', err);
     return false;
   }
 }
@@ -377,4 +447,44 @@ export function parseCsv(text: string): { headers: string[]; rows: string[][] } 
   const headers = parseLine(lines[0]);
   const rows = lines.slice(1).map(parseLine);
   return { headers, rows };
+}
+
+/**
+ * Creates a synthetic ShelfItem representing an assessment's attached mark scheme
+ */
+export function createMarkSchemeShelfItem(parentItem: ShelfItem): ShelfItem | null {
+  if (!parentItem.markSchemeFileName && !parentItem.markSchemeUrl && !parentItem.markSchemeFileData) {
+    return null;
+  }
+  return {
+    id: `${parentItem.id}_ms`,
+    type: parentItem.markSchemeFileName || parentItem.markSchemeFileData ? 'file' : 'link',
+    title: parentItem.markSchemeTitle || `${parentItem.title} - Mark Scheme`,
+    url: parentItem.markSchemeUrl,
+    cat: parentItem.cat,
+    fileName: parentItem.markSchemeFileName,
+    fileData: parentItem.markSchemeFileData,
+    ext: parentItem.markSchemeExt || (parentItem.markSchemeFileName?.split('.').pop() || 'pdf'),
+    size: parentItem.markSchemeSize,
+    visibleToStudents: parentItem.markSchemeVisibleToStudents,
+    isLargeFile: parentItem.markSchemeIsLargeFile
+  };
+}
+
+/**
+ * Opens an assessment's mark scheme in a dedicated separate desktop window/tab
+ */
+export function openMarkSchemeInSeparateWindow(parentItem: ShelfItem): Window | null {
+  const msItem = createMarkSchemeShelfItem(parentItem);
+  if (!msItem) return null;
+  return openItemInSeparateWindow(msItem);
+}
+
+/**
+ * Downloads an assessment's mark scheme to disk
+ */
+export async function downloadMarkSchemeFile(parentItem: ShelfItem): Promise<boolean> {
+  const msItem = createMarkSchemeShelfItem(parentItem);
+  if (!msItem) return false;
+  return downloadShelfFile(msItem);
 }

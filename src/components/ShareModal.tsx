@@ -155,11 +155,11 @@ export const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, onToast
           {/* Passcode Security Details */}
           <div className="p-3 bg-[var(--surface)] rounded-xl border border-[var(--line)] text-xs text-[var(--muted)] flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Lock className="w-4 h-4 text-amber-500" />
+              <Lock className="w-4 h-4 text-emerald-500" />
               <span>Teacher passcode protection is active.</span>
             </div>
-            <span className="font-mono text-[11px] text-[var(--ink)] font-semibold">
-              teacher123 (Default)
+            <span className="badge-tag bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 text-[10px] font-semibold">
+              Passcode Protected
             </span>
           </div>
         </div>

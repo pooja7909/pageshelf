@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   ExternalLink,
@@ -27,6 +27,8 @@ import { formatFileSize, analyseUrl } from '../utils/linkAnalyzer';
 import {
   getFileTypeDetails,
   createBlobUrlFromFile,
+  resolveItemBlobUrl,
+  openItemInSeparateWindow,
   openFileInDesktopTab,
   downloadShelfFile,
   formatMarkdown,
@@ -41,16 +43,31 @@ interface PreviewModalProps {
 
 export const PreviewModal: React.FC<PreviewModalProps> = ({ item, onClose, onToast }) => {
   const [copied, setCopied] = useState(false);
-  const [isFull, setIsFull] = useState(false);
+  const [isFull, setIsFull] = useState(true);
   const [viewMode, setViewMode] = useState<'preview' | 'source' | 'table'>('preview');
   const [wrapCode, setWrapCode] = useState(true);
   const [imageZoom, setImageZoom] = useState(1);
   const [csvSearch, setCsvSearch] = useState('');
+  const [asyncBlobUrl, setAsyncBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (item) {
+      resolveItemBlobUrl(item).then((url) => {
+        if (active) setAsyncBlobUrl(url);
+      });
+    }
+    return () => {
+      active = false;
+    };
+  }, [item]);
 
   // Generate blob url for desktop viewing
-  const blobUrl = useMemo(() => {
+  const directBlobUrl = useMemo(() => {
     return item ? createBlobUrlFromFile(item) : null;
   }, [item]);
+
+  const blobUrl = asyncBlobUrl || directBlobUrl;
 
   // Text / Code splitting for lines
   const textLines = useMemo(() => {
@@ -89,25 +106,20 @@ export const PreviewModal: React.FC<PreviewModalProps> = ({ item, onClose, onToa
     }
   };
 
-  const handleDownload = () => {
-    const success = downloadShelfFile(item);
-    if (success) {
-      onToast(`Downloading ${item.fileName || item.title}…`);
-    } else {
+  const handleDownload = async () => {
+    onToast(`Downloading ${item.fileName || item.title}…`);
+    const success = await downloadShelfFile(item);
+    if (!success) {
       onToast('Unable to download file.');
     }
   };
 
   const handleOpenDesktopTab = () => {
-    if (item.type === 'link' && item.url) {
-      window.open(item.url, '_blank');
-      return;
-    }
-    const success = openFileInDesktopTab(item);
-    if (success) {
-      onToast('Opened file in a new desktop browser tab');
+    const win = openItemInSeparateWindow(item);
+    if (win) {
+      onToast(`Opened "${item.title}" in another window`);
     } else {
-      onToast('Unable to open in desktop tab (browser popup blocked?)');
+      onToast('Browser popup was blocked. Click allow popups to open directly.');
     }
   };
 
