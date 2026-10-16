@@ -1480,11 +1480,13 @@ export default function App() {
       </main>
 
       {/* Interactive In-Shelf / Full Preview Modal */}
-      <PreviewModal
-        item={previewItem}
-        onClose={() => setPreviewItem(null)}
-        onToast={showToast}
-      />
+      {previewItem && (
+        <PreviewModal
+          item={previewItem}
+          onClose={() => setPreviewItem(null)}
+          onToast={showToast}
+        />
+      )}
 
       {/* Edit Item Modal */}
       <EditItemModal
