@@ -47,17 +47,37 @@ export const PreviewModal: React.FC<PreviewModalProps> = ({ item, onClose, onToa
   const [imageZoom, setImageZoom] = useState(1);
   const [csvSearch, setCsvSearch] = useState('');
 
+  // Generate blob url for desktop viewing
+  const blobUrl = useMemo(() => {
+    return item ? createBlobUrlFromFile(item) : null;
+  }, [item]);
+
+  // Text / Code splitting for lines
+  const textLines = useMemo(() => {
+    if (!item || item.type !== 'file' || !item.fileData || item.fileData.startsWith('data:')) return [];
+    return item.fileData.split(/\r?\n/);
+  }, [item]);
+
+  // CSV parsing
+  const csvData = useMemo(() => {
+    if (!item || !item.fileData) return { headers: [], rows: [] };
+    const details = getFileTypeDetails(item);
+    if (details.category !== 'csv') return { headers: [], rows: [] };
+    return parseCsv(item.fileData);
+  }, [item]);
+
+  const filteredCsvRows = useMemo(() => {
+    if (!csvSearch.trim()) return csvData.rows;
+    const q = csvSearch.toLowerCase();
+    return csvData.rows.filter((row) => row.some((cell) => cell.toLowerCase().includes(q)));
+  }, [csvData.rows, csvSearch]);
+
   if (!item) return null;
 
   const analysis = item.url ? analyseUrl(item.url) : null;
   const isVideo = item.kind === 'video' || analysis?.detectedKind === 'video';
   const effectiveEmbedUrl = item.embedUrl || analysis?.embedUrl;
   const fileDetails = getFileTypeDetails(item);
-
-  // Generate blob url for desktop viewing
-  const blobUrl = useMemo(() => {
-    return createBlobUrlFromFile(item);
-  }, [item]);
 
   const handleCopyLink = () => {
     const textToCopy = item.type === 'link' ? item.url : window.location.href;
@@ -90,24 +110,6 @@ export const PreviewModal: React.FC<PreviewModalProps> = ({ item, onClose, onToa
       onToast('Unable to open in desktop tab (browser popup blocked?)');
     }
   };
-
-  // Text / Code splitting for lines
-  const textLines = useMemo(() => {
-    if (item.type !== 'file' || !item.fileData || item.fileData.startsWith('data:')) return [];
-    return item.fileData.split(/\r?\n/);
-  }, [item]);
-
-  // CSV parsing
-  const csvData = useMemo(() => {
-    if (fileDetails.category !== 'csv' || !item.fileData) return { headers: [], rows: [] };
-    return parseCsv(item.fileData);
-  }, [fileDetails.category, item.fileData]);
-
-  const filteredCsvRows = useMemo(() => {
-    if (!csvSearch.trim()) return csvData.rows;
-    const q = csvSearch.toLowerCase();
-    return csvData.rows.filter((row) => row.some((cell) => cell.toLowerCase().includes(q)));
-  }, [csvData.rows, csvSearch]);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
